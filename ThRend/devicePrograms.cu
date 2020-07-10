@@ -1,8 +1,12 @@
 #include "owl/owl.h"
 #include "OWLRenderer.h"
+#include <owl/common/math/random.h>
 
 using namespace owl;
 using namespace owl::common;
+
+typedef owl::common::LCG<16> Random;
+
 
 __constant__ DeviceGlobals optixLaunchParams;
 
@@ -19,9 +23,13 @@ inline __device__ Ray Camera::generateRay(const vec2f &screen)
     and raygen program */
 struct IntersectionResult
 {
+  Random random;
   int   primID;
+  vec3f hitPoint;
   /*! geometry normal */
   vec3f Ng;
+  /*! point temperature */
+  float T;
 };
 
 OPTIX_CLOSEST_HIT_PROGRAM(TrianglesCH)()
@@ -35,6 +43,21 @@ OPTIX_CLOSEST_HIT_PROGRAM(TrianglesCH)()
   const vec3f v1 = self.vertices[index.y];
   const vec3f v2 = self.vertices[index.z];
   isec.Ng = normalize(cross(v1-v0,v2-v0));
+  // get triangle barycentrics
+  const float u = optixGetTriangleBarycentrics().x;
+  const float v = optixGetTriangleBarycentrics().y;
+  // get hit point
+  isec.hitPoint = (1.f - u - v) * v0
+      + u * v1
+      + v * v2;
+  isec.hitPoint = isec.hitPoint + 1e-3f * isec.Ng;
+  // get point temperature
+  auto& lp = optixLaunchParams;
+  isec.T = (1.f - u - v) * lp.temperatureBuffer[index.x]
+      + u * lp.temperatureBuffer[index.y]
+      + v * lp.temperatureBuffer[index.z];  
+
+
 }
 
 OPTIX_CLOSEST_HIT_PROGRAM(QuadsCH)()
@@ -42,13 +65,26 @@ OPTIX_CLOSEST_HIT_PROGRAM(QuadsCH)()
   auto &isec = owl::getPRD<IntersectionResult>();
   auto &self = owl::getProgramData<QuadsGeom>();
 
-  int quadID = optixGetPrimitiveIndex() / 2;
+  int quadID = optixGetPrimitiveIndex() ;
   isec.primID = quadID;
-  vec4i index = self.quads[isec.primID];
+  vec3i index = self.triangles[isec.primID];
   const vec3f v0 = self.vertices[index.x];
   const vec3f v1 = self.vertices[index.y];
   const vec3f v2 = self.vertices[index.z];
   isec.Ng = normalize(cross(v1-v0,v2-v0));
+  // get triangle barycentrics
+  const float u = optixGetTriangleBarycentrics().x;
+  const float v = optixGetTriangleBarycentrics().y;
+  // get hit point
+  isec.hitPoint = (1.f - u - v) * v0
+      + u * v1
+      + v * v2;
+  isec.hitPoint = isec.hitPoint + 1e-3f * isec.Ng;
+  // get point temperature
+  auto& lp = optixLaunchParams;
+  isec.T = (1.f - u - v) * lp.temperatureBuffer[index.x]
+      + u * lp.temperatureBuffer[index.y]
+      + v * lp.temperatureBuffer[index.z];
 }
 
 OPTIX_MISS_PROGRAM(miss)()
@@ -64,7 +100,7 @@ vec3f missColor()
   return c;
 }
 
-inline __device__
+/*inline __device__
 void writeAccumulate(const vec3f &pixelColor)
 {
   auto &lp = optixLaunchParams;
@@ -78,29 +114,180 @@ void writeAccumulate(const vec3f &pixelColor)
   
   *accumBufferValue = pixel4f;
   lp.fb.pointer[fbIndex] = make_rgba(pixel4f / pixel4f.w);
+}*/
+
+/*! get the colormap position from a given temperature */
+inline __device__
+int getColormapIndex(float T, float tmin, float tmax, int colormapsize) {
+    float tt = (T - 273.15);
+    if (tt < tmin)
+        tt = tmin;
+    else if (tt > tmax)
+        tt = tmax;
+
+    int ind = floor(((tt - tmin) / (tmax - tmin)) * (colormapsize - 1));
+    return ind;
+}
+
+inline __device__
+void writeAccumulate(const float flux, const float weight)
+{
+    auto& lp = optixLaunchParams;
+    const vec2i pixel = owl::getLaunchIndex();
+    const int fbIndex = pixel.x + lp.fb.size.x * pixel.y;
+    float4* accumBufferValue = ((float4*)lp.accumBuffer) + fbIndex;
+    const int accumID = lp.accumID;
+    vec3f colorAux;
+    // flux equal -1 means miss
+    if (flux != -1) {
+        vec4f pixel4f = vec4f(flux * weight, weight, 0.0f, 1.f);
+        if (accumID > 0)
+            pixel4f += vec4f(*accumBufferValue);
+
+        *accumBufferValue = pixel4f;
+
+        float accumFlux = pixel4f.x / pixel4f.y;
+        float apparentTemperature = pow(accumFlux, 0.25f);
+        int ind = getColormapIndex(apparentTemperature, lp.tmin, lp.tmax, lp.colormapsize);
+        colorAux = lp.colormapBuffer[ind];
+    }
+    else {
+        colorAux = missColor();
+    }
+    vec4f color = vec4f(colorAux, 1.0f);
+    lp.fb.pointer[fbIndex] = make_rgba(color);
+}
+
+
+// Implemented by jpaguerre based on eduardof MATLAB version of:
+// [Walter et al] "Microfacet Models for Refraction through Rough Surfaces"
+// We use GGX sampling and add weight with G functions
+inline __device__
+float G1vmGGX(vec3f wo, vec3f nn, vec3f mm, float thetaV, float alphaG) {
+    //eq. 34
+    float Xplus = (dot(wo, mm) / dot(wo, nn)) > 0 ? 1.0 : 0.0;
+    float G1om = Xplus * (2.0f / (1.0f + owl::common::sqrt(1.0f + alphaG * alphaG * tan(thetaV) * tan(thetaV))));
+    return G1om;
+}
+
+/*! calculate microfacet random direction */
+inline __device__
+vec3f specLobeMicrofacetGGX(
+    vec3f norm,
+    vec3f wi_world,
+    float e1,
+    float e2,
+    float alphaG,
+    float& weight)
+{
+    vec3f n;
+    vec3f s;
+    vec3f t;
+    n = norm;
+    if (fabs(n.x) > fabs(n.z)) { s.x = -n.y; s.y = n.x;  s.z = 0; }
+    else { s.x = 0; s.y = -n.z; s.z = n.y; }
+    s = normalize(s);
+    t = cross(n, s);
+
+    //eqs. 35, 36
+    vec3f nn(0., 0., 1.);
+    float thetam = atan(alphaG * owl::common::sqrt(e1) / owl::common::sqrt(1 - e1));
+    float psim = 2.0f * M_PI * e2;
+
+    float x = sin(thetam) * cos(psim);
+    float y = sin(thetam) * sin(psim);
+    float z = cos(thetam);
+    //local microfacet normal
+    vec3f mm(x, y, z); mm = normalize(mm);
+    //world wi to local wi
+    vec3f wi = vec3f(dot(wi_world, s), dot(wi_world, t), dot(wi_world, n)); wi = normalize(wi);
+    
+    //specular direction
+    vec3f wo = 2.0f * (dot(mm, wi)) * mm - wi; wo = normalize(wo);
+    if (wo.z < 0)
+        return vec3f(0, 0, 0);
+    else {
+        //eqs. 23,41 
+        float G1om = G1vmGGX(wo, nn, mm, acos(dot(wo, nn)), alphaG);
+        float G1im = G1vmGGX(wi, nn, mm, acos(dot(wi, nn)), alphaG);
+        float Giom = G1im * G1om;
+        weight = abs(dot(wi, mm)) * Giom / (abs(dot(wi, nn)) * abs(dot(mm, nn)));
+
+        //local to world coordinates:
+        vec3f rayDir = (s * wo.x) + (t * wo.y) + (n * wo.z);
+        return rayDir;
+    }
+}
+
+inline __device__
+float pow4(float num) {
+    return num * num * num * num;
 }
 
 OPTIX_RAYGEN_PROGRAM(deviceMain)()
-{
-  auto &lp = optixLaunchParams;
+{  
+    auto &lp = optixLaunchParams;
   
-  vec2i pixel = owl::getLaunchIndex();
-  if ((pixel.y % lp.multiGPU.deviceCount) != lp.multiGPU.deviceIndex) return;
+    vec2i pixel = owl::getLaunchIndex();
+    if ((pixel.y % lp.multiGPU.deviceCount) != lp.multiGPU.deviceIndex) return;
   
-  vec2f screenCoords = (vec2f(pixel)+vec2f(.5f)) / vec2f(owl::getLaunchDims());
+    vec2f screenCoords = (vec2f(pixel)+vec2f(.5f)) / vec2f(owl::getLaunchDims());
   
-  Ray ray = lp.camera.generateRay(screenCoords);
+    Ray ray = lp.camera.generateRay(screenCoords);
   
-  IntersectionResult isec;
-  isec.primID = -1;
-  owl::traceRay(lp.world,ray,isec);
+    IntersectionResult isec;
+    //seed the RNG
+    isec.random.init(pixel.x + lp.accumID * owl::getLaunchDims().x,
+        pixel.y + lp.accumID * owl::getLaunchDims().y);
 
-  vec3f color
-    = (isec.primID < 0)
-    ? missColor()//vec3f(0.f)
-    : (.3f+.7f*abs(dot(isec.Ng,ray.direction)))*owl::randomColor(isec.primID);
+    isec.primID = -1;
+    // trac primary ray
+    owl::traceRay(lp.world,ray,isec);
 
-  writeAccumulate(color);
+    vec3f color;
+
+    if (isec.primID < 0)
+        writeAccumulate(-1.0f, -1.0f);
+    else {
+        float emittedTemperature = isec.T;
+        float reflectedTemperature;
+        //for now, lets assume a constant emissivity of 0.8 (isotropic emissivity)
+        float emissivity = 0.8f;
+
+        vec3f norm = isec.Ng;
+        vec3f wi_world = -ray.direction;
+        float alphaG = 0.05;
+        float e1 = isec.random();
+        float e2 = isec.random();
+        float weight;
+
+        vec3f reflDir = specLobeMicrofacetGGX(
+            norm,
+            wi_world,
+            e1,
+            e2,
+            alphaG,
+            weight);
+        if (length(reflDir) > 0) {
+            // trace microfacet reflection
+            owl::traceRay(lp.world, Ray(isec.hitPoint, normalize(reflDir), 1e-3f, 1e10f), isec);
+            if (isec.primID < 0) {
+                //for now lets assume the sky is at -10 celsius
+                reflectedTemperature = 263.15f;
+            }
+            else {
+                //reflected ray is autohit
+                reflectedTemperature = isec.T;
+            }
+        }
+        //printf("reflDir %f\n", reflDir.x);
+        float radiativeFlux = emissivity * pow4(emittedTemperature) +
+            (1.0f - emissivity) * pow4(reflectedTemperature);
+        writeAccumulate(radiativeFlux, weight);
+        //float Tcelsius = isec.T - 273.15f;
+        //float normalizedT = min((Tcelsius - 10.0f) / 30.0f, 1.0f);
+        //color = vec3f(normalizedT, normalizedT, normalizedT);
+    }
 }
 
 

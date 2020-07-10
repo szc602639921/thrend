@@ -445,7 +445,7 @@ int main()
   // cin >> i;
 
   PING;
-  OWLRenderer renderer(model);
+  OWLRenderer renderer(model,(owl::vec3f *) &colormap[0], colormap.size(), tmin,tmax);
   Viewer viewer(renderer);
 
   viewer.enableInspectMode(/* valid range of poi*/owl::box3f(),//sceneBounds,

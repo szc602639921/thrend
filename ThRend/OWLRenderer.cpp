@@ -3,16 +3,31 @@
 
 extern "C" char deviceCode[];
 
-OWLRenderer::OWLRenderer(const Model &model)
+OWLRenderer::OWLRenderer(const Model &model, const owl::vec3f* colormap, const int colormapsize_h, const float tmin_h, const float tmax_h)
 {
   context = owlContextCreate(nullptr,1);
   module = owlModuleCreate(context,deviceCode);
 
   accumBuffer = owlDeviceBufferCreate(context,OWL_FLOAT4,1,nullptr);
-  
+  temperatureBuffer = owlDeviceBufferCreate(context, OWL_FLOAT, 1, nullptr);
+  colormapBuffer = owlDeviceBufferCreate(context, OWL_FLOAT3, 1, nullptr);
+
   createRayGen();
   createMissProg();
   createDeviceGlobals();
+
+  // allocate and load temperature buffer
+  owlBufferResize(temperatureBuffer, model.vertices.size());
+  owlBufferUpload(temperatureBuffer, (void*)&model.temps[0]);
+  owlParamsSetBuffer(globals, "temperatureBuffer", temperatureBuffer);
+  // allocate and load colormap buffer
+  owlBufferResize(colormapBuffer, colormapsize_h);
+  owlBufferUpload(colormapBuffer, (void*)colormap);
+  owlParamsSetBuffer(globals, "colormapBuffer", colormapBuffer);
+
+  owlParamsSet1i(globals, "colormapsize", colormapsize_h);
+  owlParamsSet1f(globals, "tmin", tmin_h);
+  owlParamsSet1f(globals, "tmax", tmax_h);
 
   createWorld(model);
 }
@@ -38,6 +53,11 @@ void OWLRenderer::createDeviceGlobals()
        { "fb.pointer", OWL_RAW_POINTER, OWL_OFFSETOF(DeviceGlobals,fb.pointer) },
        { "fb.size",    OWL_INT2, OWL_OFFSETOF(DeviceGlobals,fb.size) },
        { "accumBuffer",OWL_BUFPTR, OWL_OFFSETOF(DeviceGlobals,accumBuffer) },
+       { "temperatureBuffer",OWL_BUFPTR, OWL_OFFSETOF(DeviceGlobals,temperatureBuffer) },
+       { "colormapBuffer",OWL_BUFPTR, OWL_OFFSETOF(DeviceGlobals,colormapBuffer) },
+       { "tmin",OWL_FLOAT, OWL_OFFSETOF(DeviceGlobals,tmin) },
+       { "tmax",OWL_FLOAT, OWL_OFFSETOF(DeviceGlobals,tmax) },
+        { "colormapsize",OWL_INT, OWL_OFFSETOF(DeviceGlobals,colormapsize) },
        { "accumID",    OWL_INT, OWL_OFFSETOF(DeviceGlobals,accumID) },
        { "world",      OWL_GROUP, OWL_OFFSETOF(DeviceGlobals,world) },
        { "camera.origin",    OWL_FLOAT3, OWL_OFFSETOF(DeviceGlobals,camera.origin) },
@@ -111,6 +131,7 @@ OWLGeom OWLRenderer::createQuadsGeom(const Model &model)
   OWLVarDecl vars[]
     = {
        { "quads", OWL_BUFPTR, OWL_OFFSETOF(QuadsGeom,quads) },
+       { "triangles", OWL_BUFPTR, OWL_OFFSETOF(QuadsGeom,triangles) },
        { "vertices", OWL_BUFPTR, OWL_OFFSETOF(QuadsGeom,vertices) },
        { /* sentinel */ nullptr }
   };
@@ -141,7 +162,8 @@ OWLGeom OWLRenderer::createQuadsGeom(const Model &model)
   
   owlGeomSetBuffer(geom,"vertices",vertices);
   owlGeomSetBuffer(geom,"quads",quads);
-  
+  owlGeomSetBuffer(geom, "triangles", triangles);
+
   return geom;
 }
 
@@ -162,10 +184,10 @@ void OWLRenderer::render()
   owlParamsSet1i(globals,"accumID",accumID);
   owlParamsSetGroup(globals,"world",world);
   owlLaunch2D(rayGen,fbSize.x,fbSize.y,globals);
-  
   owlLaunchSync(globals);
   accumID++;
 }
+
 
 void OWLRenderer::resize(const owl::vec2i &fbSize,
                          uint32_t *fbPointer)

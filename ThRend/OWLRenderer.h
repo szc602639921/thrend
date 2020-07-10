@@ -14,6 +14,7 @@ struct TrianglesGeom {
 struct QuadsGeom {
   owl::vec3f *vertices;
   owl::vec4i *quads;
+  owl::vec3i* triangles;
 };
 
 struct Camera {
@@ -33,6 +34,12 @@ struct DeviceGlobals {
     uint32_t  *pointer;
   } fb;
   owl::vec4f *accumBuffer;
+  float* temperatureBuffer;
+  float tmin;
+  float tmax;
+  int colormapsize;
+  owl::vec3f* colormapBuffer;
+
   struct {
     int deviceIndex;
     int deviceCount;
@@ -48,7 +55,7 @@ struct DeviceGlobals {
 };
 
 struct OWLRenderer {
-  OWLRenderer(const Model &model);
+  OWLRenderer(const Model &model, const owl::vec3f * colormap, const int colormapSize, const float tminn, const float tmaxx);
 
   void render();
   void resize(const owl::vec2i &fbSize,
@@ -77,6 +84,11 @@ private:
   OWLGroup    world   { 0 };
   OWLMissProg missProg { 0 };
   OWLBuffer   accumBuffer { 0 };
+  OWLBuffer   temperatureBuffer{ 0 };
+  OWLBuffer   colormapBuffer{ 0 };
+  float tmin;
+  float tmax;
+  int colormapsize;
 };
 
 
