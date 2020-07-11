@@ -1,6 +1,8 @@
 #ifndef MATERIALimporter
 #define MATERIALimporter
 
+#include "Material.h"
+
 #include <string>
 #include <vector>
 #include <glm.hpp>
@@ -9,50 +11,36 @@
 #include <iostream>
 #include <cmath>
 
-
-using namespace std;
-using namespace glm;
-
-typedef struct{
-	string name;
-	int UCD_id;
-	float normal_emissivity;
-	float diffuse_fraction;
-	float roughness;
-	float * emisTable;
-	bool custom;
-} material;
-
-vector<int> ids;
+// ids is just an aux vec for degub reasons.
+std::vector<int> ids;
 
 double deg2rad(float deg) {
 	return deg * M_PI / 180.0;
 }
 
-float * computeEmissivityCurve(material m){
+void computeEmissivityCurve(Material *m){
 	float* emisTable = (float*)malloc(sizeof(float) * 91);
-	float e = m.normal_emissivity;
-	float df = m.diffuse_fraction;
+	float e = m->normal_emissivity;
+	float df = m->diffuse_fraction;
 	float r = 1.0 - e;
 	for (int i = 0; i < 91; i++){
 		float teta = deg2rad(90 - i);
 		float schlick = 1 - (r + (1 - r)*(pow(1 - cos(teta), 5.0)));
-		emisTable[i] = (df*e) + (1 - df)*schlick;
+		m->emisTable[i] = (df*e) + (1 - df)*schlick;
 	}
-	return emisTable;
 }
 
 
-material* loadMaterials(std::string filename){
-	material* matProps = (material*)malloc(sizeof(material) * 64);
-	material m; m.UCD_id = -1; m.custom = false;
-	ifstream file(filename.c_str());
+Material* loadMaterials(std::string filename){
+	Material* matProps = (Material*)malloc(sizeof(Material) * 64);
+	Material m; m.UCD_id = -1; m.custom = false;
+	std::ifstream file(filename.c_str());
 
-	cout << "Loading file " << filename << " \n";
-	string line;
-	while (getline(file, line)){
-		stringstream   linestream(line);
-		string id;
+	std::cout << "Loading file " << filename << " \n";
+	std::string line;
+	while (std::getline(file, line)){
+		std::stringstream   linestream(line);
+		std::string id;
 		linestream >> id;
 		if (id.size() < 0 || (id.size() > 0 && id.at(0) == '#')){
 			
@@ -62,11 +50,11 @@ material* loadMaterials(std::string filename){
 			if (m.UCD_id != -1){
 				ids.push_back(m.UCD_id);
 				if (!m.custom)
-					m.emisTable = computeEmissivityCurve(m);
-				memcpy(matProps + (m.UCD_id), &m, sizeof(material));
+					computeEmissivityCurve(&m);
+				memcpy(matProps + (m.UCD_id), &m, sizeof(Material));
 				m.custom = false;
 			}
-			string x;
+			std::string x;
 			linestream >> x;
 			m.name = x;
 		}
@@ -93,7 +81,7 @@ material* loadMaterials(std::string filename){
 		else if (id == "emissivity_curve"){
 			float x;
 			m.custom = true;
-			m.emisTable = (float*)malloc(sizeof(float) * 91);
+			//m.emisTable = (float*)malloc(sizeof(float) * 91);
 			for (int i = 0; i < 91; i++){
 				linestream >> x;
 				m.emisTable[i] = x;
@@ -104,28 +92,28 @@ material* loadMaterials(std::string filename){
 	if (m.UCD_id != -1){
 		ids.push_back(m.UCD_id);
 		if (!m.custom)
-			m.emisTable = computeEmissivityCurve(m);
-		memcpy(matProps + (m.UCD_id), &m, sizeof(material));
+			computeEmissivityCurve(&m);
+		memcpy(matProps + (m.UCD_id), &m, sizeof(Material));
 		m.custom = false;
 	}
-	cout << "Materials loaded succesfully \n";
+	std::cout << "Materials loaded succesfully \n";
 	return matProps;
 }
 
-void printMaterials(material* matProps){
+void printMaterials(Material* matProps){
 	for (int i = 0; i < ids.size(); i++){
-		material m = matProps[ids[i]];
-		cout << "name " << m.name << "\n";
-		cout << "UCD_id " << m.UCD_id << "\n";
+		Material m = matProps[ids[i]];
+		std::cout << "name " << m.name << "\n";
+		std::cout << "UCD_id " << m.UCD_id << "\n";
 		if (!m.custom){
-			cout << "normal_emissivity " << m.normal_emissivity << "\n";
-			cout << "diffuse_fraction " << m.diffuse_fraction << "\n";
+			std::cout << "normal_emissivity " << m.normal_emissivity << "\n";
+			std::cout << "diffuse_fraction " << m.diffuse_fraction << "\n";
 		}
-		cout << "roughness " << m.roughness << "\n";
+		std::cout << "roughness " << m.roughness << "\n";
 
 		for (int j = 0; j < 91; j++)
-			cout << m.emisTable[j] << " ";
-		cout << "\n";
+			std::cout << m.emisTable[j] << " ";
+		std::cout << "\n";
 	}
 }
 

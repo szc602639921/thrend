@@ -3,14 +3,19 @@
 
 extern "C" char deviceCode[];
 
-OWLRenderer::OWLRenderer(const Model &model, const owl::vec3f* colormap, const int colormapsize_h, const float tmin_h, const float tmax_h)
+//OWLRenderer::OWLRenderer(const Model &model, const owl::vec3f* colormap, const int colormapsize_h, const float tmin_h, const float tmax_h)
+OWLRenderer::OWLRenderer(const Model& model, Colormap cm, Material* mats, float* tsky)
 {
   context = owlContextCreate(nullptr,1);
   module = owlModuleCreate(context,deviceCode);
 
   accumBuffer = owlDeviceBufferCreate(context,OWL_FLOAT4,1,nullptr);
   temperatureBuffer = owlDeviceBufferCreate(context, OWL_FLOAT, 1, nullptr);
+  skyTemperatureBuffer = owlDeviceBufferCreate(context, OWL_FLOAT, 1, nullptr);
+  tris_matIDsBuffer = owlDeviceBufferCreate(context, OWL_INT, 1, nullptr);
+  quads_matIDsBuffer = owlDeviceBufferCreate(context, OWL_INT, 1, nullptr);
   colormapBuffer = owlDeviceBufferCreate(context, OWL_FLOAT3, 1, nullptr);
+  matsBuffer = owlDeviceBufferCreate(context, OWL_USER_TYPE(mats[0]),64, mats);
 
   createRayGen();
   createMissProg();
@@ -20,14 +25,29 @@ OWLRenderer::OWLRenderer(const Model &model, const owl::vec3f* colormap, const i
   owlBufferResize(temperatureBuffer, model.vertices.size());
   owlBufferUpload(temperatureBuffer, (void*)&model.temps[0]);
   owlParamsSetBuffer(globals, "temperatureBuffer", temperatureBuffer);
-  // allocate and load colormap buffer
-  owlBufferResize(colormapBuffer, colormapsize_h);
-  owlBufferUpload(colormapBuffer, (void*)colormap);
-  owlParamsSetBuffer(globals, "colormapBuffer", colormapBuffer);
+  // allocate and load sky temperature buffer
+  owlBufferResize(skyTemperatureBuffer, 10);
+  owlBufferUpload(skyTemperatureBuffer, (void*)tsky);
+  owlParamsSetBuffer(globals, "skyTemperatureBuffer", skyTemperatureBuffer);
+  // allocate and load matIDs buffer
+  owlBufferResize(tris_matIDsBuffer, model.tris_matIDs.size());
+  owlBufferUpload(tris_matIDsBuffer, (void*)&model.tris_matIDs[0]);
+  owlParamsSetBuffer(globals, "tris_matIDsBuffer", tris_matIDsBuffer);
 
-  owlParamsSet1i(globals, "colormapsize", colormapsize_h);
-  owlParamsSet1f(globals, "tmin", tmin_h);
-  owlParamsSet1f(globals, "tmax", tmax_h);
+  owlBufferResize(quads_matIDsBuffer, model.quads_matIDs.size());
+  owlBufferUpload(quads_matIDsBuffer, (void*)&model.quads_matIDs[0]);
+  owlParamsSetBuffer(globals, "quads_matIDsBuffer", quads_matIDsBuffer);
+  // allocate and load colormap buffer
+  owlBufferResize(colormapBuffer, cm.colormap.size());
+  owlBufferUpload(colormapBuffer, (void*)&cm.colormap[0]);
+  owlParamsSetBuffer(globals, "colormapBuffer", colormapBuffer);
+  // set mats buffer in params
+  owlParamsSetBuffer(globals, "matsBuffer", matsBuffer);
+
+
+  owlParamsSet1i(globals, "colormapsize", cm.colormap.size());
+  owlParamsSet1f(globals, "tmin", cm.tmin);
+  owlParamsSet1f(globals, "tmax", cm.tmax);
 
   createWorld(model);
 }
@@ -54,10 +74,14 @@ void OWLRenderer::createDeviceGlobals()
        { "fb.size",    OWL_INT2, OWL_OFFSETOF(DeviceGlobals,fb.size) },
        { "accumBuffer",OWL_BUFPTR, OWL_OFFSETOF(DeviceGlobals,accumBuffer) },
        { "temperatureBuffer",OWL_BUFPTR, OWL_OFFSETOF(DeviceGlobals,temperatureBuffer) },
+       { "skyTemperatureBuffer",OWL_BUFPTR, OWL_OFFSETOF(DeviceGlobals,skyTemperatureBuffer) },
+       { "tris_matIDsBuffer",OWL_BUFPTR, OWL_OFFSETOF(DeviceGlobals,tris_matIDsBuffer) },
+       { "quads_matIDsBuffer",OWL_BUFPTR, OWL_OFFSETOF(DeviceGlobals,quads_matIDsBuffer) },
        { "colormapBuffer",OWL_BUFPTR, OWL_OFFSETOF(DeviceGlobals,colormapBuffer) },
+       { "matsBuffer",OWL_BUFPTR, OWL_OFFSETOF(DeviceGlobals,matsBuffer) },
        { "tmin",OWL_FLOAT, OWL_OFFSETOF(DeviceGlobals,tmin) },
        { "tmax",OWL_FLOAT, OWL_OFFSETOF(DeviceGlobals,tmax) },
-        { "colormapsize",OWL_INT, OWL_OFFSETOF(DeviceGlobals,colormapsize) },
+       { "colormapsize",OWL_INT, OWL_OFFSETOF(DeviceGlobals,colormapsize) },
        { "accumID",    OWL_INT, OWL_OFFSETOF(DeviceGlobals,accumID) },
        { "world",      OWL_GROUP, OWL_OFFSETOF(DeviceGlobals,world) },
        { "camera.origin",    OWL_FLOAT3, OWL_OFFSETOF(DeviceGlobals,camera.origin) },

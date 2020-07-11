@@ -30,7 +30,7 @@ Result followSpecularPath(float* tsky,
                           glm::vec3 &reflDir,
                           glm::vec3 &hitPoint,
                           std::vector<int> &matIDs,
-                          material *matProps)
+                          Material *matProps)
 {
 #if 0
   float rayCon = 1;
@@ -193,6 +193,7 @@ vec3 specLobeMicrofacetGGX(ONB baseNorm,
                            float &weight,
                            float rotationAngle)
 {
+#if(0)
   //eqs. 35, 36
   vec3 nn(0., 0., 1.);
   float thetam = atan(alphaG*sqrt(e1)/sqrt(1-e1));
@@ -220,6 +221,9 @@ vec3 specLobeMicrofacetGGX(ONB baseNorm,
     wo = baseNorm.LocalToWorld(wo); wo = normalize(wo);
     return wo;
   }
+#else
+return {};
+#endif
 }
 
 
@@ -239,8 +243,9 @@ vec2 Hammersley(uint i, uint N)
 }
 
 float getGlossyReflectedFlux(float refl,float* tsky, vec3 orig, vec3 originalDir, vec3 hitNormal, 
-                             float angulo, float alphaG, float* reflTAnt, std::vector<int> &matIDs, material *matProps, float rotationAngle){
-  float reflFlux = 0;
+                             float angulo, float alphaG, float* reflTAnt, std::vector<int> &matIDs, Material *matProps, float rotationAngle){
+#if(0) 
+    float reflFlux = 0;
 
   vec3 dir = 2.0f * glm::dot(hitNormal, -originalDir) * hitNormal + originalDir;
   int nRaysX = round(sqrt(NRAYS_GLOSSY));
@@ -275,6 +280,9 @@ float getGlossyReflectedFlux(float refl,float* tsky, vec3 orig, vec3 originalDir
     reflFlux = reflTAnt[omp_get_thread_num()];
   }
   return reflFlux;
+#else
+    return {};
+#endif
 }
 
 float getDiffuselyReflectedTemperature(float* tsky,

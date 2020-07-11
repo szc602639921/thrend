@@ -1,5 +1,6 @@
 #include "owl/owl.h"
 #include "OWLRenderer.h"
+#include "ONB.h"
 #include <owl/common/math/random.h>
 
 using namespace owl;
@@ -28,8 +29,10 @@ struct IntersectionResult
   vec3f hitPoint;
   /*! geometry normal */
   vec3f Ng;
-  /*! point temperature */
+  /*! temperature of intersection*/
   float T;
+  /*! material of intersection */
+  int matID;
 };
 
 OPTIX_CLOSEST_HIT_PROGRAM(TrianglesCH)()
@@ -56,8 +59,8 @@ OPTIX_CLOSEST_HIT_PROGRAM(TrianglesCH)()
   isec.T = (1.f - u - v) * lp.temperatureBuffer[index.x]
       + u * lp.temperatureBuffer[index.y]
       + v * lp.temperatureBuffer[index.z];  
-
-
+  // get point material
+  isec.matID = lp.tris_matIDsBuffer[isec.primID];
 }
 
 OPTIX_CLOSEST_HIT_PROGRAM(QuadsCH)()
@@ -85,6 +88,8 @@ OPTIX_CLOSEST_HIT_PROGRAM(QuadsCH)()
   isec.T = (1.f - u - v) * lp.temperatureBuffer[index.x]
       + u * lp.temperatureBuffer[index.y]
       + v * lp.temperatureBuffer[index.z];
+  // get point material
+  isec.matID = lp.quads_matIDsBuffer[isec.primID/2];
 }
 
 OPTIX_MISS_PROGRAM(miss)()
@@ -173,22 +178,13 @@ float G1vmGGX(vec3f wo, vec3f nn, vec3f mm, float thetaV, float alphaG) {
 /*! calculate microfacet random direction */
 inline __device__
 vec3f specLobeMicrofacetGGX(
-    vec3f norm,
+    ONB onb,
     vec3f wi_world,
     float e1,
     float e2,
     float alphaG,
     float& weight)
 {
-    vec3f n;
-    vec3f s;
-    vec3f t;
-    n = norm;
-    if (fabs(n.x) > fabs(n.z)) { s.x = -n.y; s.y = n.x;  s.z = 0; }
-    else { s.x = 0; s.y = -n.z; s.z = n.y; }
-    s = normalize(s);
-    t = cross(n, s);
-
     //eqs. 35, 36
     vec3f nn(0., 0., 1.);
     float thetam = atan(alphaG * owl::common::sqrt(e1) / owl::common::sqrt(1 - e1));
@@ -200,8 +196,8 @@ vec3f specLobeMicrofacetGGX(
     //local microfacet normal
     vec3f mm(x, y, z); mm = normalize(mm);
     //world wi to local wi
-    vec3f wi = vec3f(dot(wi_world, s), dot(wi_world, t), dot(wi_world, n)); wi = normalize(wi);
-    
+    vec3f wi = onb.WorldToLocal(wi_world); wi = normalize(wi);
+   
     //specular direction
     vec3f wo = 2.0f * (dot(mm, wi)) * mm - wi; wo = normalize(wo);
     if (wo.z < 0)
@@ -214,7 +210,7 @@ vec3f specLobeMicrofacetGGX(
         weight = abs(dot(wi, mm)) * Giom / (abs(dot(wi, nn)) * abs(dot(mm, nn)));
 
         //local to world coordinates:
-        vec3f rayDir = (s * wo.x) + (t * wo.y) + (n * wo.z);
+        vec3f rayDir = onb.LocalToWorld(wo);
         return rayDir;
     }
 }
@@ -227,7 +223,8 @@ float pow4(float num) {
 OPTIX_RAYGEN_PROGRAM(deviceMain)()
 {  
     auto &lp = optixLaunchParams;
-  
+    Material* mats =lp.matsBuffer;
+    float* tsky = lp.skyTemperatureBuffer;
     vec2i pixel = owl::getLaunchIndex();
     if ((pixel.y % lp.multiGPU.deviceCount) != lp.multiGPU.deviceIndex) return;
   
@@ -250,19 +247,39 @@ OPTIX_RAYGEN_PROGRAM(deviceMain)()
         writeAccumulate(-1.0f, -1.0f);
     else {
         float emittedTemperature = isec.T;
-        float reflectedTemperature;
-        //for now, lets assume a constant emissivity of 0.8 (isotropic emissivity)
-        float emissivity = 0.8f;
-
+        float reflectedTemperature = isec.T;
+        //get intersection normal and ray direction
         vec3f norm = isec.Ng;
         vec3f wi_world = -ray.direction;
-        float alphaG = 0.05;
+        //get intersection material properties
+        Material* m = mats + isec.matID;
+        float* emiT = m->emisTable;
+        float alphaG = m->roughness;
+        //create orthonormal basis from norm
+        ONB onb(norm);
+        //get local wi
+        vec3f wi_local = onb.WorldToLocal(-ray.direction);
+        //get intersection emissivity
+        float local_angle = (asin(wi_local.z) * 180 / M_PI);
+        float emissivity ;
+        if (local_angle < 0){
+            //error
+            emissivity = 1.0f;
+            //printf("error %f\n", local_angle);
+        }
+        else {
+            int ang1 = floor(local_angle);
+            int ang2 = ceil(local_angle);
+            float coef = local_angle - ang1;
+            emissivity = (1 - coef) * emiT[ang1] + coef * emiT[ang2];
+            if(emissivity<0.0f)
+                printf("emi %f ang1 %d ang2 %d\n", emissivity,ang1,ang2);
+        }
         float e1 = isec.random();
         float e2 = isec.random();
         float weight;
-
         vec3f reflDir = specLobeMicrofacetGGX(
-            norm,
+            onb,
             wi_world,
             e1,
             e2,
@@ -270,10 +287,19 @@ OPTIX_RAYGEN_PROGRAM(deviceMain)()
             weight);
         if (length(reflDir) > 0) {
             // trace microfacet reflection
+            isec.primID = -1;
             owl::traceRay(lp.world, Ray(isec.hitPoint, normalize(reflDir), 1e-3f, 1e10f), isec);
             if (isec.primID < 0) {
-                //for now lets assume the sky is at -10 celsius
-                reflectedTemperature = 263.15f;
+                //calculate sky temperature
+                float angle = asin(reflDir.z) * 180 / M_PI;
+                if (angle > 0 && angle < 90) {
+                    int angleL = floor(angle / 10);
+                    int angleU = ceil(angle / 10);
+                    float rest = angle / 10 - angleL;
+                    reflectedTemperature = (1 - rest) * tsky[9 - angleL] + rest * tsky[9 - angleU];
+                }
+                else
+                    reflectedTemperature = 273.15;
             }
             else {
                 //reflected ray is autohit
@@ -284,10 +310,9 @@ OPTIX_RAYGEN_PROGRAM(deviceMain)()
         float radiativeFlux = emissivity * pow4(emittedTemperature) +
             (1.0f - emissivity) * pow4(reflectedTemperature);
         writeAccumulate(radiativeFlux, weight);
-        //float Tcelsius = isec.T - 273.15f;
-        //float normalizedT = min((Tcelsius - 10.0f) / 30.0f, 1.0f);
-        //color = vec3f(normalizedT, normalizedT, normalizedT);
     }
+
+
 }
 
 

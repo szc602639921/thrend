@@ -1,5 +1,7 @@
-#ifndef COLORMP
-#define COLORMP
+#pragma once
+
+#define _USE_MATH_DEFINES
+#define GLM_ENABLE_EXPERIMENTAL
 
 #include <string>
 #include <vector>
@@ -8,61 +10,45 @@
 #include <sstream>
 #include <iostream>
 
-using namespace std;
-using namespace glm;
+struct Colormap{
+public:
+	std::vector<glm::vec3> colormap;
+	//min and max temperatures of the colormap
+	float tmin;
+	float tmax;
+	//min and max temperatures of the reflection colormap
+	float tmin_reflected;
+	float tmax_reflected;
 
-typedef struct{
-	int r;
-	int g;
-	int b;
-} colorInt;
+	int getColor(float t) {
+		float tt = (t - 273.15);
 
-vector<vec3> colormap;
+		if (tt < tmin)
+			tt = tmin;
+		else if (tt > tmax)
+			tt = tmax;
 
-//min and max temperatures of the colormap
-float tmin;
-float tmax;
-//min and max temperatures of the reflection colormap
-float tmin_reflected ;
-float tmax_reflected ;
-
-void loadColormapFromFile(string file){
-	std::ifstream ifs(file);
-	glm::vec3 c;
-
-	colormap.clear();
-	while (ifs >> c.x >> c.y >> c.z) {
-		colormap.push_back(c);
+		int ind = floor(((tt - tmin) / (tmax - tmin)) * (colormap.size() - 1));
+		return ind;
 	}
-	std::cout << "Colormap loaded succesfully...\n";
-}
+
+	//get temp with other values (for reflections)
+	int getColor2(float t) {
+		float tt = (t - 273.15);
+
+		if (tt < tmin_reflected)
+			tt = tmin_reflected;
+		else if (tt > tmax_reflected)
+			tt = tmax_reflected;
+
+		int ind = floor(((tt - tmin_reflected) / (tmax_reflected - tmin_reflected)) * (colormap.size() - 1));
+		return ind;
+	}
+
+};
+
 
 
 //get temp with tmin and tmax
-int getColor(float t){
-	float tt = (t - 273.15);
 
-	if (tt < tmin)
-		tt = tmin;
-	else if (tt > tmax)
-		tt = tmax;
-
-	int ind = floor(((tt - tmin) / (tmax - tmin))*(colormap.size() - 1));
-	return ind;
-}
-
-//get temp with other values (for reflections)
-int getColor2(float t){
-	float tt = (t - 273.15);
-
-	if (tt < tmin_reflected)
-		tt = tmin_reflected;
-	else if (tt > tmax_reflected)
-		tt = tmax_reflected;
-
-	int ind = floor(((tt - tmin_reflected) / (tmax_reflected - tmin_reflected))*(colormap.size() - 1));
-	return ind;
-}
-
-#endif
 

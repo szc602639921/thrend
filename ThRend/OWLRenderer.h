@@ -1,6 +1,9 @@
 #pragma once
 
 #include "Model.h"
+#include "colormap.h"
+#include "Material.h"
+
 #include <owl/owl.h>
 #include <owl/common/math/vec.h>
 
@@ -35,10 +38,16 @@ struct DeviceGlobals {
   } fb;
   owl::vec4f *accumBuffer;
   float* temperatureBuffer;
+  float* skyTemperatureBuffer;
+
+  int* tris_matIDsBuffer;
+  int* quads_matIDsBuffer;
   float tmin;
   float tmax;
   int colormapsize;
   owl::vec3f* colormapBuffer;
+
+  Material* matsBuffer;
 
   struct {
     int deviceIndex;
@@ -55,7 +64,7 @@ struct DeviceGlobals {
 };
 
 struct OWLRenderer {
-  OWLRenderer(const Model &model, const owl::vec3f * colormap, const int colormapSize, const float tminn, const float tmaxx);
+  OWLRenderer(const Model &model, Colormap cm, Material* mats, float* tsky);
 
   void render();
   void resize(const owl::vec2i &fbSize,
@@ -85,7 +94,12 @@ private:
   OWLMissProg missProg { 0 };
   OWLBuffer   accumBuffer { 0 };
   OWLBuffer   temperatureBuffer{ 0 };
+  OWLBuffer   skyTemperatureBuffer{ 0 };
+  OWLBuffer   tris_matIDsBuffer{ 0 };
+  OWLBuffer   quads_matIDsBuffer{ 0 };
   OWLBuffer   colormapBuffer{ 0 };
+  OWLBuffer   matsBuffer{ 0 };
+
   float tmin;
   float tmax;
   int colormapsize;

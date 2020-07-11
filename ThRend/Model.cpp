@@ -19,7 +19,8 @@ void loadUCD(Model &model,
   auto &sc_vertices  = model.vertices;
   auto &sc_triangles = model.triangles;
   auto &sc_quads     = model.quads;
-  auto &matIDs       = model.matIDs;
+  auto &tris_matIDs  = model.tris_matIDs;
+  auto &quads_matIDs = model.quads_matIDs;
   auto &temps        = model.temps;
   
   ifstream file(fileName);
@@ -52,15 +53,16 @@ void loadUCD(Model &model,
     int idx1, idx2, idx3, idx4;
     stringstream   linestream(line);
     linestream >> id >> mat >> poly;
-    matIDs.push_back(mat);
 
     if (poly == "tri"){
+      tris_matIDs.push_back(mat);
       linestream >> idx1 >> idx2 >> idx3;
       sc_triangles.push_back({idx1-1,
                               idx2-1,
                               idx3-1});
     }
     else if (poly == "quad"){
+      quads_matIDs.push_back(mat);
       linestream >> idx1 >> idx2 >> idx3 >> idx4;
       sc_quads.push_back({idx1-1,
                           idx2-1,

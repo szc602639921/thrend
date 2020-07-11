@@ -14,7 +14,8 @@ struct Model
   std::vector<glm::vec3>  vertices;
   std::vector<owl::vec3i> triangles;
   std::vector<owl::vec4i> quads;
-  std::vector<int>        matIDs;
+  std::vector<int>        tris_matIDs;
+  std::vector<int>        quads_matIDs;
   std::vector<float>      temps;
 
   inline owl::box3f getBounds() const {

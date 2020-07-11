@@ -1,32 +1,38 @@
-//THIS FILE WAS WRITTEN BY IGNACIO DECIA
+//ORIGINAL FILE WRITTEN BY IGNACIO DECIA
+//MODIFICATIONS FROM GLM TO OWL by jpaguerre
 
 #ifndef OrtoNormalBase
 #define OrtoNormalBase
 
-#include <glm.hpp>
+#include "owl/common/math/vec.h"
+#include "owl/common/math/box.h"
+#include <cuda.h>
+#include <optix.h>
 
-
-class ONB {
+struct ONB {
 
 public:
-	ONB(glm::vec3 normal);
-	glm::vec3 WorldToLocal(const glm::vec3 &v);
-	glm::vec3 LocalToWorld(const glm::vec3 &v);
-
+#if __CUDA_ARCH__
+	inline __device__ ONB(owl::vec3f normal);
+	inline __device__ owl::vec3f WorldToLocal(const owl::vec3f& v);
+	inline __device__ owl::vec3f LocalToWorld(const owl::vec3f& v);
+#endif
 private:
-	glm::vec3 n;
-	glm::vec3 s;
-	glm::vec3 t;
+	owl::vec3f n;
+	owl::vec3f s;
+	owl::vec3f t;
 };
 
-
-ONB::ONB(glm::vec3 normal)	{
-     n = normal;
+#if __CUDA_ARCH__
+inline ONB::ONB(owl::vec3f normal)
+{
+	n = normal;
 	if (fabs(n.x) > fabs(n.z)) {
 		s.x = -n.y;
 		s.y = n.x;
 		s.z = 0;
-	} else {
+	}
+	else {
 
 		s.x = 0;
 		s.y = -n.z;
@@ -37,14 +43,15 @@ ONB::ONB(glm::vec3 normal)	{
 	t = cross(n, s);
 }
 
-
-glm::vec3 ONB::WorldToLocal(const glm::vec3 &v) {
-	return glm::vec3(dot(v, s), dot(v, t), dot(v, n));
+inline __device__
+owl::vec3f ONB::WorldToLocal(const owl::vec3f &v) {
+	return owl::vec3f(dot(v, s), dot(v, t), dot(v, n));
 }
 
-
-glm::vec3 ONB::LocalToWorld(const glm::vec3 &v) {
+inline __device__
+owl::vec3f ONB::LocalToWorld(const owl::vec3f &v) {
 	return  (v.x * s) + (v.y * t) + (v.z * n);
 }
+#endif
 
 #endif

@@ -69,6 +69,20 @@ int omp_get_thread_num() { return 1; }
 // 	FreeImage_DeInitialise();
 // }
 
+Colormap loadColormapFromFile(std::string file) {
+    Colormap cm;
+
+    std::ifstream ifs(file);
+    glm::vec3 c;
+
+    cm.colormap.clear();
+    while (ifs >> c.x >> c.y >> c.z) {
+        cm.colormap.push_back(c);
+    }
+    std::cout << "Colormap loaded succesfully...\n";
+    return cm;
+}
+
 void saveData(float* data, int width, int height){
   std::ofstream ffs_file("../results/temps");
   for (int i = 0; i<width; ++i) {
@@ -138,7 +152,7 @@ void Viewer::render()
   renderer.render();
 }
 
-void generateThermography(float*tsky, std::vector<int> &matIDs, settings &s, material *matProps){
+void generateThermography(float*tsky, std::vector<int> &matIDs, settings &s, Material *matProps){
 #if 0
   std::cout << "Rendering thermography... \n";
   glm::vec3 camOrig = s.cameraCenter;
@@ -429,30 +443,31 @@ int main()
   loadUCD(model,"../" + s.sceneFile);
 
   PING;
-  loadColormapFromFile(("../" + s.colormapFile));
+  Colormap cm =  loadColormapFromFile(("../" + s.colormapFile));
+  cm.tmin = s.tmin; cm.tmax = s.tmax;
+  cm.tmin_reflected = s.tmin_reflected; cm.tmax_reflected = s.tmax_reflected;
+
   float* tsky = loadSkyTemp(("../" + s.skyTempsFile));
-  tmin = s.tmin; tmax = s.tmax;
-  tmin_reflected = s.tmin_reflected; tmax_reflected = s.tmax_reflected;
 
   NRAYS_GLOSSY = s.reflSamples;
   MAX_BOUNCES = s.MAX_BOUNCES;
 
-  material* matProps = loadMaterials("../materials");
-  //printMaterials(matProps);
+  Material* mats = loadMaterials("../materials");
+ // printMaterials(mats);
 
   // generateThermography(tsky, model.matIDs, s,matProps);
   // int i;
   // cin >> i;
 
   PING;
-  OWLRenderer renderer(model,(owl::vec3f *) &colormap[0], colormap.size(), tmin,tmax);
+  OWLRenderer renderer(model,cm, mats,tsky);
   Viewer viewer(renderer);
 
   viewer.enableInspectMode(/* valid range of poi*/owl::box3f(),//sceneBounds,
                            /* min distance      */1e-3f,
                            /* max distance      */1e8f);
   viewer.enableFlyMode();
-  viewer.setWorldScale(owl::length(model.getBounds().size()));
+  viewer.setWorldScale(owl::length(model.getBounds().size())*0.1f);
 
   owl::vec3f from = (const owl::vec3f&)s.cameraCenter;
   owl::vec3f dir  = (const owl::vec3f&)s.cameraDirection;
