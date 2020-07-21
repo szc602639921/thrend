@@ -220,6 +220,29 @@ float pow4(float num) {
     return num * num * num * num;
 }
 
+inline __device__
+float getDirectionalEmissivity(ONB onb, vec3f rayDir, float* emiT) {
+    //get local wi
+    vec3f wi_local = onb.WorldToLocal(rayDir);
+    //get intersection emissivity
+    float local_angle = (asin(wi_local.z) * 180 / M_PI);
+    float emissivity;
+    if (local_angle < 0) {
+        //autohit
+        emissivity = 1.0f;
+    }
+    else {
+        int ang1 = floor(local_angle);
+        int ang2 = ceil(local_angle);
+        float coef = local_angle - ang1;
+        emissivity = (1 - coef) * emiT[ang1] + coef * emiT[ang2];
+        //error: debug 
+        if (emissivity < 0.0f)
+            printf("emi %f ang1 %d ang2 %d coef %f\n", emissivity, ang1, ang2, coef);
+    }
+    return emissivity;
+}
+
 OPTIX_RAYGEN_PROGRAM(deviceMain)()
 {  
     auto &lp = optixLaunchParams;
@@ -229,7 +252,6 @@ OPTIX_RAYGEN_PROGRAM(deviceMain)()
     if ((pixel.y % lp.multiGPU.deviceCount) != lp.multiGPU.deviceIndex) return;
   
     vec2f screenCoords = (vec2f(pixel)+vec2f(.5f)) / vec2f(owl::getLaunchDims());
-  
     Ray ray = lp.camera.generateRay(screenCoords);
   
     IntersectionResult isec;
@@ -241,13 +263,13 @@ OPTIX_RAYGEN_PROGRAM(deviceMain)()
     // trac primary ray
     owl::traceRay(lp.world,ray,isec);
 
-    vec3f color;
-
-    if (isec.primID < 0)
+    if (isec.primID < 0){
+        //miss
         writeAccumulate(-1.0f, -1.0f);
+    }
     else {
-        float emittedTemperature = isec.T;
-        float reflectedTemperature = isec.T;
+        //hit
+
         //get intersection normal and ray direction
         vec3f norm = isec.Ng;
         vec3f wi_world = -ray.direction;
@@ -257,62 +279,76 @@ OPTIX_RAYGEN_PROGRAM(deviceMain)()
         float alphaG = m->roughness;
         //create orthonormal basis from norm
         ONB onb(norm);
-        //get local wi
-        vec3f wi_local = onb.WorldToLocal(-ray.direction);
-        //get intersection emissivity
-        float local_angle = (asin(wi_local.z) * 180 / M_PI);
-        float emissivity ;
-        if (local_angle < 0){
-            //error
-            emissivity = 1.0f;
-            //printf("error %f\n", local_angle);
-        }
-        else {
-            int ang1 = floor(local_angle);
-            int ang2 = ceil(local_angle);
-            float coef = local_angle - ang1;
-            emissivity = (1 - coef) * emiT[ang1] + coef * emiT[ang2];
-            if(emissivity<0.0f)
-                printf("emi %f ang1 %d ang2 %d\n", emissivity,ang1,ang2);
-        }
-        float e1 = isec.random();
-        float e2 = isec.random();
-        float weight;
-        vec3f reflDir = specLobeMicrofacetGGX(
-            onb,
-            wi_world,
-            e1,
-            e2,
-            alphaG,
-            weight);
-        if (length(reflDir) > 0) {
-            // trace microfacet reflection
-            isec.primID = -1;
-            owl::traceRay(lp.world, Ray(isec.hitPoint, normalize(reflDir), 1e-3f, 1e10f), isec);
-            if (isec.primID < 0) {
-                //calculate sky temperature
-                float angle = asin(reflDir.z) * 180 / M_PI;
-                if (angle > 0 && angle < 90) {
-                    int angleL = floor(angle / 10);
-                    int angleU = ceil(angle / 10);
-                    float rest = angle / 10 - angleL;
-                    reflectedTemperature = (1 - rest) * tsky[9 - angleL] + rest * tsky[9 - angleU];
+        //get directional emissivity
+        float emissivity = getDirectionalEmissivity(onb, -ray.direction, emiT);
+        float directEmissivity = emissivity;
+        float directTemperature = isec.T;
+        // see Alg. 1 of [Aguerre et al., 2020]
+        float directWeight;
+        int firstBounce = 1;
+        float reflectedFlux = 0.0f;
+        float rayCon = 1.0f; 
+        // russian-roulette on the reflectivity (but ensuring first bounce)
+        while (firstBounce || (isec.random() < (1.0f - emissivity))) {
+            float e1 = isec.random();
+            float e2 = isec.random();
+            float weight;
+            vec3f reflDir = specLobeMicrofacetGGX(
+                onb,
+                wi_world,
+                e1,
+                e2,
+                alphaG,
+                weight);
+            if (firstBounce) {
+                directWeight = weight;
+                firstBounce = 0;
+            }
+            if (length(reflDir) > 0) {
+                // trace microfacet reflection
+                isec.primID = -1;
+                Ray auxRay(isec.hitPoint, normalize(reflDir), 1e-3f, 1e10f);
+                ray = auxRay;
+                owl::traceRay(lp.world, ray, isec);
+                float reflectedTemperature;
+                if (isec.primID < 0) {
+                    //calculate sky temperature
+                    float angle = asin(reflDir.z) * 180 / M_PI;
+                    if (angle > 0 && angle < 90) {
+                        int angleL = floor(angle / 10);
+                        int angleU = ceil(angle / 10);
+                        float rest = angle / 10 - angleL;
+                        reflectedTemperature = (1 - rest) * tsky[9 - angleL] + rest * tsky[9 - angleU];
+                    }
+                    else
+                        reflectedTemperature = 273.15;
                 }
-                else
-                    reflectedTemperature = 273.15;
-            }
-            else {
-                //reflected ray is autohit
-                reflectedTemperature = isec.T;
+                else {
+                    //reflected ray is autohit
+                    reflectedTemperature = isec.T;
+                }
+
+                //get intersection normal and ray direction
+                vec3f norm = isec.Ng;
+                vec3f wi_world = -ray.direction;
+                //get intersection material properties
+                Material* m = mats + isec.matID;
+                float* emiT = m->emisTable;
+                float alphaG = m->roughness;
+                //create orthonormal basis from norm
+                ONB onb(norm);
+                //get directional emissivity
+                emissivity = getDirectionalEmissivity(onb, -ray.direction, emiT);
+                //actualize reflected flux
+                reflectedFlux += rayCon * emissivity * pow4(reflectedTemperature);
+                //actualize ray contribution
+                rayCon *= (1 - emissivity);
             }
         }
-        //printf("reflDir %f\n", reflDir.x);
-        float radiativeFlux = emissivity * pow4(emittedTemperature) +
-            (1.0f - emissivity) * pow4(reflectedTemperature);
-        writeAccumulate(radiativeFlux, weight);
+        float radiativeFlux = directEmissivity * pow4(directTemperature)
+                            + (1- directEmissivity)* reflectedFlux;
+        writeAccumulate(radiativeFlux, directWeight);
     }
-
-
 }
 
 

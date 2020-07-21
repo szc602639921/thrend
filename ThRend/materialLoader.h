@@ -33,7 +33,7 @@ void computeEmissivityCurve(Material *m){
 
 Material* loadMaterials(std::string filename){
 	Material* matProps = (Material*)malloc(sizeof(Material) * 64);
-	Material m; m.UCD_id = -1; m.custom = false;
+	Material m; m.UCD_id = -1; m.custom = 0;
 	std::ifstream file(filename.c_str());
 
 	std::cout << "Loading file " << filename << " \n";
@@ -52,11 +52,11 @@ Material* loadMaterials(std::string filename){
 				if (!m.custom)
 					computeEmissivityCurve(&m);
 				memcpy(matProps + (m.UCD_id), &m, sizeof(Material));
-				m.custom = false;
+				m.custom = 0;
 			}
 			std::string x;
 			linestream >> x;
-			m.name = x;
+			//m.name = x;
 		}
 		else if (id == "UCD_id"){
 			int x;
@@ -80,7 +80,7 @@ Material* loadMaterials(std::string filename){
 		}
 		else if (id == "emissivity_curve"){
 			float x;
-			m.custom = true;
+			m.custom = 1;
 			//m.emisTable = (float*)malloc(sizeof(float) * 91);
 			for (int i = 0; i < 91; i++){
 				linestream >> x;
@@ -94,7 +94,7 @@ Material* loadMaterials(std::string filename){
 		if (!m.custom)
 			computeEmissivityCurve(&m);
 		memcpy(matProps + (m.UCD_id), &m, sizeof(Material));
-		m.custom = false;
+		m.custom = 0;
 	}
 	std::cout << "Materials loaded succesfully \n";
 	return matProps;
@@ -103,7 +103,7 @@ Material* loadMaterials(std::string filename){
 void printMaterials(Material* matProps){
 	for (int i = 0; i < ids.size(); i++){
 		Material m = matProps[ids[i]];
-		std::cout << "name " << m.name << "\n";
+		//std::cout << "name " << m.name << "\n";
 		std::cout << "UCD_id " << m.UCD_id << "\n";
 		if (!m.custom){
 			std::cout << "normal_emissivity " << m.normal_emissivity << "\n";
