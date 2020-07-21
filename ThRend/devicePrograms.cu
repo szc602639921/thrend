@@ -318,6 +318,7 @@ OPTIX_RAYGEN_PROGRAM(deviceMain)()
                         int angleL = floor(angle / 10);
                         int angleU = ceil(angle / 10);
                         float rest = angle / 10 - angleL;
+                        //linearly interpolate sky temperature based on ring temperature
                         reflectedTemperature = (1 - rest) * tsky[9 - angleL] + rest * tsky[9 - angleU];
                     }
                     else

@@ -3,31 +3,31 @@ name wood
 UCD_id 2
 normal_emissivity 0.95
 diffuse_fraction 0.9
-roughness 0.0995
+roughness 0.40
 
 name mortar
 UCD_id 3
 normal_emissivity 0.91
 diffuse_fraction 0.85
-roughness 0.0814
+roughness 0.28
 
 name stone
 UCD_id 4
 normal_emissivity 0.96
 diffuse_fraction 0.90
-roughness 0.0631
+roughness 0.14
 
 name roof_tile
 UCD_id 5
 normal_emissivity 0.90
 diffuse_fraction 0.50
-roughness 0.0447
+roughness 0.05
 
 name asphalt
 UCD_id 7
 normal_emissivity 0.92
 diffuse_fraction 0.70
-roughness 0.0995
+roughness 0.21
 
 name window_blinds
 UCD_id 8
@@ -39,7 +39,7 @@ name glass
 UCD_id 9
 normal_emissivity 0.92
 diffuse_fraction 0
-roughness 0.0141
+roughness 0.00001
 
 #the following materials are not used in the main example, 
 #but are defined to show you how to use diffuse reflection and custom emissivity.
