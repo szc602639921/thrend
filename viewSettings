@@ -1,5 +1,5 @@
 #scene settings
-sceneFile bayonne14hs.inp
+sceneFile mvd.inp
 skyTempsFile tsky  
 
 # camera and image settings
@@ -27,7 +27,7 @@ reflSamples 100;
 MAX_BOUNCES 2
 
 # Colormap settings
-colormapFile colormap
+colormapFile cm-grayscale
 tmin 10
 tmax 40
 
