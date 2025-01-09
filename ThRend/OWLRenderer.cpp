@@ -1,13 +1,13 @@
 #include "OWLRenderer.h"
 #include <owl/owl.h>
 
-extern "C" char deviceCode[];
+extern "C" char deviceCode_ptx[];
 
 //OWLRenderer::OWLRenderer(const Model &model, const owl::vec3f* colormap, const int colormapsize_h, const float tmin_h, const float tmax_h)
 OWLRenderer::OWLRenderer(const Model& model, Colormap cm, Material* mats, float* tsky)
 {
   context = owlContextCreate(nullptr,1);
-  module = owlModuleCreate(context,deviceCode);
+  module = owlModuleCreate(context,deviceCode_ptx);
 
   accumBuffer = owlDeviceBufferCreate(context,OWL_FLOAT4,1,nullptr);
   temperatureBuffer = owlDeviceBufferCreate(context, OWL_FLOAT, 1, nullptr);

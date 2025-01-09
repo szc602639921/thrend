@@ -15,9 +15,9 @@
 # ======================================================================== #
 
 cmake_policy(SET CMP0048 NEW)
-project(ThRendOWL VERSION 0.1.0)
+project(ThRendOWL VERSION 0.1.0 LANGUAGES C CXX CUDA)
 
-cmake_minimum_required(VERSION 2.8)
+cmake_minimum_required(VERSION 3.12)
 # iw, 1/3/20: yes, i know this is 'old' cmake style, but on CentOS7
 # this is the only way that works, since the 'correct' way of setting
 # the cxx11 standard doesnt propagate those flags to nvcc for the cuda
@@ -28,28 +28,36 @@ set (CMAKE_CXX_FLAGS "--std=c++11")
 set (CUDA_PROPAGATE_HOST_FLAGS ON)
 endif()
 
-set(owl_dir ${CMAKE_CURRENT_SOURCE_DIR}/submodules/owl)
-set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${owl_dir}/owl/common/cmake/")
-add_subdirectory(${owl_dir} external_owl EXCLUDE_FROM_ALL)
-
-include(configure_cuda)
-include(configure_build_type)
-
-# -------------------------------------------------------
-if (NOT WIN32) 
-  set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
-  set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
-  set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+if (NOT CMAKE_CUDA_ARCHITECTURES)
+  # 'all-major', since cmake-3.23
+  set(CMAKE_CUDA_ARCHITECTURES all-major)
 endif()
 
+set(owl_dir ${CMAKE_CURRENT_SOURCE_DIR}/submodules/owl)
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${owl_dir}/owl/cmake/")
+add_subdirectory(${owl_dir})
+include(embed_ptx)
 # -------------------------------------------------------
 include_directories(${OWL_INCLUDES})
 include_directories(${OWL_VIEWER_INCLUDES})
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}")
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/ThRend/glm")
+include_directories("${CMAKE_CURRENT_SOURCE_DIR}/submodules/owl/owl/include")
+include_directories("${CMAKE_CURRENT_SOURCE_DIR}/submodules/owl")
+include_directories("${CMAKE_CURRENT_SOURCE_DIR}/submodules/owl/3rdParty/glfw/include")
+include_directories("/usr/local/cuda/include/")
+include_directories("/home/shen/myproject/NVIDIA-OptiX-SDK-7.4.0-linux64-x86_64/include")
+
 add_definitions(${OWL_CXX_FLAGS})
 
-cuda_compile_and_embed(deviceCode ./ThRend/devicePrograms.cu)
+embed_ptx(
+  OUTPUT_TARGET
+    deviceCode
+  PTX_LINK_LIBRARIES
+    owl::owl
+  SOURCES
+    ./ThRend/deviceCode.cu
+)
 
 add_executable(owlThRend
   ./ThRend/colormap.h
@@ -73,10 +81,11 @@ add_executable(owlThRend
   ./ThRend/main.cpp
   ./ThRend/Model.cpp
   ./ThRend/OWLRenderer.cpp
-
-  ${deviceCode}
   )
 target_link_libraries(owlThRend
-  ${OWL_VIEWER_LIBRARIES}
+PRIVATE
+  deviceCode
+  owl::owl 
+  owl_viewer
   )
 

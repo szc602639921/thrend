@@ -1,3 +1,5 @@
+export OptiX_INSTALL_DIR=/home/shen/myproject/NVIDIA-OptiX-SDK-7.4.0-linux64-x86_64
+
 # ThRend
 **Infrared rendering for thermography simulation**
 <p align="center">
