@@ -19,6 +19,7 @@ tags
 deps
 tbb
 ispc
+/utils/.venv
 ./ospray-doc
 readme.pdf
 !/modules
