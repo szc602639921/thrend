@@ -46,7 +46,7 @@ include_directories("${CMAKE_CURRENT_SOURCE_DIR}/submodules/owl/owl/include")
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/submodules/owl")
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/submodules/owl/3rdParty/glfw/include")
 include_directories("/usr/local/cuda/include/")
-include_directories("/home/shen/myproject/NVIDIA-OptiX-SDK-7.4.0-linux64-x86_64/include")
+include_directories(${OPTIX_INCLUDES})
 
 add_definitions(${OWL_CXX_FLAGS})
 

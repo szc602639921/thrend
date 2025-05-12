@@ -27,3 +27,5 @@ readme.pdf
 !/modules/pluggableGeometryExample
 !/modules/simdGeometryExample
 Session.vim
+viewSettings copy
+.env
